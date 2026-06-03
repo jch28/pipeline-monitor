@@ -1,0 +1,130 @@
+name: Pipeline Monitor
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: pipeline-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install opencode
+        run: npm install -g opencode-ai@latest
+
+      - name: Start web search MCP server
+        run: |
+          echo "[$(date -u +%H:%M:%S)] Installing MCP server dependencies..."
+          pip install fastmcp requests beautifulsoup4 pydantic fastapi uvicorn -q
+          mkdir -p /tmp/mcp-server
+          curl -sL https://raw.githubusercontent.com/VesiHiisinen/opencode-web-search/master/src/server.py \
+            -o /tmp/mcp-server/server.py
+          echo "[$(date -u +%H:%M:%S)] Starting MCP server..."
+          nohup python /tmp/mcp-server/server.py > /tmp/mcp-server.log 2>&1 &
+          MCP_PID=$!
+          echo "MCP_PID=$MCP_PID" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+              echo "[$(date -u +%H:%M:%S)] MCP server ready (attempt $i)"
+              break
+            fi
+            sleep 2
+            if [ $i -eq 30 ]; then
+              echo "[$(date -u +%H:%M:%S)] WARNING: MCP server did not start"
+            fi
+          done
+
+      - name: Clone rule34.ink (private)
+        env:
+          ARCHITECT_PAT: ${{ secrets.MARKETING_ARCHITECT_PAT }}
+        run: |
+          git clone "https://x-access-token:${ARCHITECT_PAT}@github.com/jch28/rule27.git" /tmp/rule27 2>&1 || {
+            echo "ERROR: Failed to clone rule34.ink — cannot proceed"
+            exit 1
+          }
+
+      - name: Clone marketing-architect
+        run: |
+          git clone https://github.com/jch28/marketing-architect.git /tmp/marketing-architect 2>&1 || {
+            echo "WARNING: Failed to clone marketing-architect (public repo)"
+            mkdir -p /tmp/marketing-architect
+          }
+
+      - name: Clone marketing-executor
+        run: |
+          git clone https://github.com/jch28/marketing-executor.git /tmp/marketing-executor 2>&1 || {
+            echo "WARNING: Failed to clone marketing-executor (public repo)"
+            mkdir -p /tmp/marketing-executor
+          }
+
+      - name: Monitor and heal pipeline
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          ARCHITECT_PAT: ${{ secrets.MARKETING_ARCHITECT_PAT }}
+        run: |
+          set -uo pipefail
+
+          LOG="/tmp/rule27/ideas/monitor.log"
+          mkdir -p /tmp/rule27/ideas
+
+          log() {
+            echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" | tee -a "$LOG"
+          }
+
+          log "MONITOR: Starting pipeline health check"
+          log "MONITOR: Running from /tmp/rule27 (rule34.ink clone)"
+
+          cd /tmp/rule27
+
+          cat ideas/prompts/monitor-diagnose.md | timeout 6600 opencode run --agent build --model opencode/deepseek-v4-flash-free --dangerously-skip-permissions \
+            > /tmp/opencode-monitor.log 2>&1 || true
+          EXIT_CODE=$?
+          log "MONITOR: OpenCode diagnostics complete (exit: ${EXIT_CODE})"
+
+          # Log whether pipeline was reported healthy
+          if grep -q "PIPELINE_HEALTHY" /tmp/opencode-monitor.log 2>/dev/null; then
+            log "MONITOR: Pipeline healthy"
+          else
+            log "MONITOR: Pipeline may need attention — check /tmp/opencode-monitor.log"
+          fi
+
+          # Commit and push changes to rule34.ink
+          git add -A
+          if git -c user.name="pipeline-monitor" -c user.email="monitor@pipeline.local" \
+            commit -m "monitor: pipeline health check and fixes" 2>/dev/null; then
+            log "GIT: committed monitor changes"
+            git fetch origin main 2>/dev/null && git rebase origin/main 2>/dev/null || { git rebase --abort 2>/dev/null || true; }
+            if git push "https://x-access-token:${ARCHITECT_PAT}@github.com/jch28/rule27.git" HEAD:main 2>&1; then
+              log "GIT: pushed to rule34.ink"
+            else
+              log "GIT: push to rule34.ink failed"
+            fi
+          fi
+
+          # Commit and push changes to marketing-architect (public)
+          if [ -d /tmp/marketing-architect ]; then
+            cd /tmp/marketing-architect
+            git add -A
+            if git -c user.name="pipeline-monitor" -c user.email="monitor@pipeline.local" \
+              commit -m "monitor: pipeline health check and fixes" 2>/dev/null; then
+              log "GIT: committed changes to marketing-architect"
+              git fetch origin main 2>/dev/null && git rebase origin/main 2>/dev/null || { git rebase --abort 2>/dev/null || true; }
+              git push origin HEAD:main 2>&1 || log "GIT: push to marketing-architect failed"
+            fi
+          fi
+
+          log "MONITOR: Run complete"
+          exit 0
