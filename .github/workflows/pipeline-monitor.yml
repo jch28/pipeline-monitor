@@ -72,6 +72,10 @@ jobs:
 
       - name: Monitor and heal pipeline
         env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          CF_EMAIL: ${{ secrets.CF_EMAIL }}
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           ARCHITECT_PAT: ${{ secrets.MARKETING_ARCHITECT_PAT }}
           GH_TOKEN: ${{ secrets.MARKETING_ARCHITECT_PAT }}
