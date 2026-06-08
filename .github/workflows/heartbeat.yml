@@ -9,10 +9,15 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          token: \${{ secrets.MARKETING_ARCHITECT_PAT }}
       - name: Commit heartbeat
+        env:
+          GIT_PAT: \${{ secrets.MARKETING_ARCHITECT_PAT }}
         run: |
           git config user.name "heartbeat-bot"
           git config user.email "bot@rule34.ink"
           git commit --allow-empty -m "chore: heartbeat [skip ci]"
+          git remote set-url origin "https://x-access-token:\${GIT_PAT}@github.com/jch28/pipeline-monitor.git"
           git push
 
