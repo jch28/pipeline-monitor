@@ -18,6 +18,5 @@ jobs:
           git config user.name "heartbeat-bot"
           git config user.email "bot@rule34.ink"
           git commit --allow-empty -m "chore: heartbeat [skip ci]"
-          git remote set-url origin "https://x-access-token:\${GIT_PAT}@github.com/jch28/pipeline-monitor.git"
-          git push
-
+          git config --unset-all http.https://github.com/.extraheader || true
+          git push "https://x-access-token:\${GIT_PAT}@github.com/\${GITHUB_REPOSITORY}.git" HEAD:\${GITHUB_REF_NAME}
