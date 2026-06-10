@@ -10,10 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          token: \${{ secrets.MARKETING_ARCHITECT_PAT }}
+          token: ${{ secrets.MARKETING_ARCHITECT_PAT }}
       - name: Commit heartbeat
         env:
-          GIT_PAT: \${{ secrets.MARKETING_ARCHITECT_PAT }}
+          GIT_PAT: ${{ secrets.MARKETING_ARCHITECT_PAT }}
         run: |
           git config user.name "heartbeat-bot"
           git config user.email "bot@rule34.ink"
